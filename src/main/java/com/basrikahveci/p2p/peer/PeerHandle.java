@@ -1,5 +1,6 @@
 package com.basrikahveci.p2p.peer;
 
+import com.basrikahveci.p2p.file.FileProtocol;
 import com.basrikahveci.p2p.peer.network.PeerChannelHandler;
 import com.basrikahveci.p2p.peer.network.PeerChannelInitializer;
 import com.basrikahveci.p2p.peer.service.ConnectionService;
@@ -19,6 +20,10 @@ import io.netty.handler.logging.LoggingHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.basrikahveci.p2p.file.FileTransferManager;
+
+import java.io.File;
+
 import java.util.Collection;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -29,7 +34,6 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 public class PeerHandle {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(PeerHandle.class);
-
 
     private final Config config;
 
@@ -49,13 +53,20 @@ public class PeerHandle {
 
     private Future timeoutPingsFuture;
 
+    private FileTransferManager fileTransferManager;
+
     public PeerHandle(Config config, int portToBind) {
         this.config = config;
         this.portToBind = portToBind;
         final ConnectionService connectionService = new ConnectionService(config, networkEventLoopGroup, peerEventLoopGroup, encoder);
         final LeadershipService leadershipService = new LeadershipService(connectionService, config, peerEventLoopGroup);
         final PingService pingService = new PingService(connectionService, leadershipService, config);
-        this.peer = new Peer(config, connectionService, pingService, leadershipService);
+
+        String uploadDir = "./uploads/" + config.getPeerName();
+        this.fileTransferManager = new FileTransferManager(this, uploadDir);
+
+        // Pasar el fileTransferManager al construir el Peer
+        this.peer = new Peer(config, connectionService, pingService, leadershipService, fileTransferManager);
     }
 
     public String getPeerName() {
@@ -66,13 +77,9 @@ public class PeerHandle {
         ChannelFuture closeFuture = null;
 
         final PeerChannelHandler peerChannelHandler = new PeerChannelHandler(config, peer);
-        final PeerChannelInitializer peerChannelInitializer = new PeerChannelInitializer(config, encoder,
-                peerEventLoopGroup, peerChannelHandler);
+        final PeerChannelInitializer peerChannelInitializer = new PeerChannelInitializer(config, encoder, peerEventLoopGroup, peerChannelHandler);
         final ServerBootstrap peerBootstrap = new ServerBootstrap();
-        peerBootstrap.group(acceptorEventLoopGroup, networkEventLoopGroup).channel(NioServerSocketChannel.class)
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000).option(ChannelOption.SO_KEEPALIVE, true)
-                .option(ChannelOption.SO_BACKLOG, 100).handler(new LoggingHandler(LogLevel.INFO))
-                .childHandler(peerChannelInitializer);
+        peerBootstrap.group(acceptorEventLoopGroup, networkEventLoopGroup).channel(NioServerSocketChannel.class).option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000).option(ChannelOption.SO_KEEPALIVE, true).option(ChannelOption.SO_BACKLOG, 100).handler(new LoggingHandler(LogLevel.INFO)).childHandler(peerChannelInitializer);
 
         final ChannelFuture bindFuture = peerBootstrap.bind(portToBind).sync();
 
@@ -130,6 +137,125 @@ public class PeerHandle {
         return future;
     }
 
+    public CompletableFuture<Void> sendFileMetadata(String targetPeer, String transferId, String fileName, String fullPath, long fileSize) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        peerEventLoopGroup.execute(() -> {
+            try {
+                FileProtocol.FileMetadataMessage message = new FileProtocol.FileMetadataMessage(transferId, config.getPeerName(), fileName, fullPath, fileSize);
+
+                // Aquí necesitamos adaptar el mensaje para enviarlo con el sistema existente
+                // Esto requiere crear una clase adaptadora que implemente Message
+                sendFileMessage(targetPeer, message);
+
+                future.complete(null);
+            } catch (Exception e) {
+                LOGGER.error("Failed to send file metadata for " + fileName + " to " + targetPeer, e);
+                future.completeExceptionally(e);
+            }
+        });
+        return future;
+    }
+
+    public CompletableFuture<Void> sendFileChunk(String targetPeer, String transferId, byte[] data, long offset, int chunkNumber) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        peerEventLoopGroup.execute(() -> {
+            try {
+                FileProtocol.FileChunkMessage message = new FileProtocol.FileChunkMessage(transferId, config.getPeerName(), data, offset, chunkNumber);
+
+                sendFileMessage(targetPeer, message);
+
+                future.complete(null);
+            } catch (Exception e) {
+                LOGGER.error("Failed to send file chunk at offset " + offset + " to " + targetPeer, e);
+                future.completeExceptionally(e);
+            }
+        });
+        return future;
+    }
+
+    public CompletableFuture<Void> sendTransferError(String targetPeer, String transferId, String errorMessage) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        peerEventLoopGroup.execute(() -> {
+            try {
+                FileProtocol.TransferErrorMessage message = new FileProtocol.TransferErrorMessage(transferId, config.getPeerName(), errorMessage);
+
+                sendFileMessage(targetPeer, message);
+
+                future.complete(null);
+            } catch (Exception e) {
+                LOGGER.error("Failed to send transfer error notification to " + targetPeer, e);
+                future.completeExceptionally(e);
+            }
+        });
+        return future;
+    }
+
+    public CompletableFuture<Void> sendChunkAcknowledgment(String targetPeer, String transferId, int chunkNumber) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        peerEventLoopGroup.execute(() -> {
+            try {
+                FileProtocol.ChunkAckMessage message = new FileProtocol.ChunkAckMessage(transferId, config.getPeerName(), chunkNumber);
+                sendFileMessage(targetPeer, message);
+
+                future.complete(null);
+            } catch (Exception e) {
+                LOGGER.error("Failed to send chunk acknowledgment for chunk " + chunkNumber + " to " + targetPeer, e);
+                future.completeExceptionally(e);
+            }
+        });
+        return future;
+    }
+
+    public CompletableFuture<Void> completeFileTransfer(String targetPeer, String transferId) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        peerEventLoopGroup.execute(() -> {
+            try {
+                FileTransferManager.FileTransferInfo transferInfo = fileTransferManager.getOutgoingTransfer(transferId);
+                long totalBytes = transferInfo != null ? transferInfo.getFileSize() : 0;
+
+                FileProtocol.TransferCompleteMessage message = new FileProtocol.TransferCompleteMessage(transferId, config.getPeerName(), totalBytes);
+
+                sendFileMessage(targetPeer, message);
+
+                future.complete(null);
+            } catch (Exception e) {
+                LOGGER.error("Failed to complete file transfer " + transferId + " to " + targetPeer, e);
+                future.completeExceptionally(e);
+            }
+        });
+        return future;
+    }
+
+    public CompletableFuture<Void> cancelFileTransfer(String targetPeer, String transferId) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        peerEventLoopGroup.execute(() -> {
+            try {
+                FileProtocol.TransferCancelMessage message = new FileProtocol.TransferCancelMessage(transferId, config.getPeerName(), "Transfer cancelled by sender");
+
+                sendFileMessage(targetPeer, message);
+
+                future.complete(null);
+            } catch (Exception e) {
+                LOGGER.error("Failed to cancel file transfer " + transferId + " to " + targetPeer, e);
+                future.completeExceptionally(e);
+            }
+        });
+        return future;
+    }
+
+    /**
+     * Método auxiliar para enviar mensajes de FileProtocol
+     */
+    private void sendFileMessage(String targetPeer, FileProtocol.FileMessage message) {
+        // Now the parameter type matches what peer.sendFileMessage expects
+        peer.sendFileMessage(targetPeer, message);
+    }
+
+    public CompletableFuture<Void> sendFile(final String targetPeer, final File file) {
+        return fileTransferManager.sendFile(targetPeer, file);
+    }
+
+
     public void scheduleLeaderElection() {
         peerEventLoopGroup.execute(peer::scheduleElection);
     }
@@ -146,4 +272,7 @@ public class PeerHandle {
         peerEventLoopGroup.execute(() -> peer.disconnect(peerName));
     }
 
+    public int getPort() {
+        return portToBind;
+    }
 }

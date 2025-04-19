@@ -1,6 +1,9 @@
 package com.basrikahveci.p2p.peer;
 
+import com.basrikahveci.p2p.file.FileProtocol;
+import com.basrikahveci.p2p.file.FileTransferManager;
 import com.basrikahveci.p2p.peer.network.Connection;
+import com.basrikahveci.p2p.peer.network.message.FileTransferMessage;
 import com.basrikahveci.p2p.peer.network.message.ping.CancelPongs;
 import com.basrikahveci.p2p.peer.network.message.ping.Ping;
 import com.basrikahveci.p2p.peer.network.message.ping.Pong;
@@ -31,15 +34,19 @@ public class Peer {
 
     private final LeadershipService leadershipService;
 
+    // Añadir como atributo de clase en Peer.java
+    private final FileTransferManager fileTransferManager;
+
     private Channel bindChannel;
 
     private boolean running = true;
 
-    public Peer(Config config, ConnectionService connectionService, PingService pingService, LeadershipService leadershipService) {
+    public Peer(Config config, ConnectionService connectionService, PingService pingService, LeadershipService leadershipService, FileTransferManager fileTransferManager) {
         this.config = config;
         this.connectionService = connectionService;
         this.pingService = pingService;
         this.leadershipService = leadershipService;
+        this.fileTransferManager = fileTransferManager;
     }
 
     public void handleConnectionOpened(Connection connection, String leaderName) {
@@ -134,14 +141,12 @@ public class Peer {
         }
 
         final Collection<Pong> pongs = pingService.timeoutPings();
-        final int availableConnectionSlots =
-                config.getMinNumberOfActiveConnections() - connectionService.getNumberOfConnections();
+        final int availableConnectionSlots = config.getMinNumberOfActiveConnections() - connectionService.getNumberOfConnections();
 
         if (availableConnectionSlots > 0) {
             List<Pong> notConnectedPeers = new ArrayList<>();
             for (Pong pong : pongs) {
-                if (!config.getPeerName().equals(pong.getPeerName()) && !connectionService
-                        .isConnectedTo(pong.getPeerName())) {
+                if (!config.getPeerName().equals(pong.getPeerName()) && !connectionService.isConnectedTo(pong.getPeerName())) {
                     notConnectedPeers.add(pong);
                 }
             }
@@ -151,8 +156,7 @@ public class Peer {
                 final Pong peerToConnect = notConnectedPeers.get(i);
                 final String host = peerToConnect.getServerHost();
                 final int port = peerToConnect.getServerPort();
-                LOGGER.info("Auto-connecting to {} via {}:{}", peerToConnect.getPeerName(), peerToConnect.getPeerName(), host,
-                        port);
+                LOGGER.info("Auto-connecting to {} via {}:{}", peerToConnect.getPeerName(), peerToConnect.getPeerName(), host, port);
                 connectTo(host, port, null);
             }
         }
@@ -268,6 +272,111 @@ public class Peer {
         } else {
             futureToNotify.completeExceptionally(new RuntimeException("Server is not running"));
         }
+    }
+
+    public void handleFileMessage(FileProtocol.FileMessage message) {
+        String sourcePeer = message.getSourcePeer();
+        String transferId = message.getTransferId();
+
+        switch (message.getType()) {
+            case FILE_METADATA:
+                FileProtocol.FileMetadataMessage metadataMsg = (FileProtocol.FileMetadataMessage) message;
+                fileTransferManager.handleFileMetadata(sourcePeer, transferId, metadataMsg.getFileName(), metadataMsg.getFileSize());
+                break;
+
+            case FILE_CHUNK:
+                FileProtocol.FileChunkMessage chunkMsg = (FileProtocol.FileChunkMessage) message;
+                fileTransferManager.handleFileChunk(sourcePeer, transferId, chunkMsg.getData(), chunkMsg.getOffset(), chunkMsg.getChunkNumber());
+
+                break;
+
+            case CHUNK_ACK:
+                FileProtocol.ChunkAckMessage ackMsg = (FileProtocol.ChunkAckMessage) message;
+                fileTransferManager.handleChunkAcknowledgment(
+                        sourcePeer,
+                        transferId,
+                        ackMsg.getChunkNumber()
+                );
+                break;
+
+            case TRANSFER_COMPLETE:
+                FileProtocol.TransferCompleteMessage completeMsg = (FileProtocol.TransferCompleteMessage) message;
+                fileTransferManager.completeFileTransfer(sourcePeer, transferId);
+                break;
+
+            case TRANSFER_CANCEL:
+                FileProtocol.TransferCancelMessage cancelMsg = (FileProtocol.TransferCancelMessage) message;
+                fileTransferManager.cancelFileTransfer(sourcePeer, transferId);
+                break;
+
+            case TRANSFER_ERROR:
+                FileProtocol.TransferErrorMessage errorMsg = (FileProtocol.TransferErrorMessage) message;
+                LOGGER.error("File transfer error from {}: {}", sourcePeer, errorMsg.getErrorMessage());
+                fileTransferManager.cancelFileTransfer(sourcePeer, transferId);
+                break;
+        }
+    }
+
+    public void sendMessage(String targetPeer, Object message, CompletableFuture<Void> future) {
+        Connection connection = connectionService.getConnection(targetPeer);
+        if (connection == null) {
+            String errorMsg = "No connection available to peer: " + targetPeer;
+            LOGGER.error(errorMsg);
+            if (future != null) {
+                future.completeExceptionally(new IllegalStateException(errorMsg));
+            }
+            return;
+        }
+
+        // Como Connection.send() no acepta CompletableFuture, tendremos que
+        // asumir que el envío fue exitoso si no hay excepciones
+        try {
+            // Si el mensaje no es de tipo Message, necesitamos adaptarlo
+            if (message instanceof com.basrikahveci.p2p.peer.network.message.Message) {
+                connection.send((com.basrikahveci.p2p.peer.network.message.Message) message);
+            } else {
+                // Aquí necesitarías adaptar los mensajes de FileProtocol a tu tipo Message
+                // O modificar Connection para aceptar objetos de FileProtocol
+                LOGGER.error("Cannot send message of type {}", message.getClass().getName());
+                if (future != null) {
+                    future.completeExceptionally(new IllegalArgumentException("Unsupported message type"));
+                }
+                return;
+            }
+
+            if (future != null) {
+                future.complete(null);
+            }
+        } catch (Exception e) {
+            LOGGER.error("Failed to send message to " + targetPeer, e);
+            if (future != null) {
+                future.completeExceptionally(e);
+            }
+        }
+    }
+
+    public CompletableFuture<Void> sendFileMessage(String targetPeer, FileProtocol.FileMessage fileMessage) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+
+        Connection connection = connectionService.getConnection(targetPeer);
+        if (connection == null) {
+            String errorMsg = "No connection available to peer: " + targetPeer;
+            LOGGER.error(errorMsg);
+            future.completeExceptionally(new IllegalStateException(errorMsg));
+            return future;
+        }
+
+        // Adaptamos el mensaje de FileProtocol a un mensaje que entiende nuestro sistema
+        try {
+            FileTransferMessage message = new FileTransferMessage(fileMessage);
+            connection.send(message);
+            future.complete(null);
+        } catch (Exception e) {
+            LOGGER.error("Failed to send file message to " + targetPeer, e);
+            future.completeExceptionally(e);
+        }
+
+        return future;
     }
 
     private boolean isShutdown() {

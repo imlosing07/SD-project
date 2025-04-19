@@ -1,7 +1,9 @@
 package com.basrikahveci.p2p.peer.network;
 
+import com.basrikahveci.p2p.file.FileProtocol;
 import com.basrikahveci.p2p.peer.Config;
 import com.basrikahveci.p2p.peer.Peer;
+import com.basrikahveci.p2p.peer.network.message.FileTransferMessage;
 import com.basrikahveci.p2p.peer.network.message.Handshake;
 import com.basrikahveci.p2p.peer.network.message.Message;
 import io.netty.channel.ChannelHandler.Sharable;
@@ -51,13 +53,6 @@ public class PeerChannelHandler extends SimpleChannelInboundHandler<Message> {
     }
 
     @Override
-    public void channelRead0(final ChannelHandlerContext ctx, final Message message) throws Exception {
-        LOGGER.debug("Message {} received from {}", message.getClass(), ctx.channel().remoteAddress());
-        final Connection connection = getSessionAttribute(ctx).get();
-        message.handle(peer, connection);
-    }
-
-    @Override
     public void channelReadComplete(final ChannelHandlerContext ctx) {
         ctx.flush();
     }
@@ -80,4 +75,10 @@ public class PeerChannelHandler extends SimpleChannelInboundHandler<Message> {
         }
     }
 
+    @Override
+    protected void channelRead0(ChannelHandlerContext ctx, Message msg) throws Exception {
+        LOGGER.debug("Message {} received from {}", msg.getClass(), ctx.channel().remoteAddress());
+        final Connection connection = getSessionAttribute(ctx).get();
+        msg.handle(peer, connection);
+    }
 }
