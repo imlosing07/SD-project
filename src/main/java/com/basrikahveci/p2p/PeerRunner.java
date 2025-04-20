@@ -6,11 +6,9 @@ import io.netty.channel.ChannelFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
-import java.util.List;
 import java.util.function.BiConsumer;
 
 import static com.basrikahveci.p2p.PeerRunner.CommandResult.INVALID_COMMAND;
@@ -20,26 +18,21 @@ public class PeerRunner {
     private static final Logger LOGGER = LoggerFactory.getLogger(PeerHandle.class);
 
     enum CommandResult {
-        CONTINUE, SHUT_DOWN, INVALID_COMMAND
+        CONTINUE,
+        SHUT_DOWN,
+        INVALID_COMMAND
     }
 
     private final PeerHandle handle;
-    private WebServer webServer;
 
     public PeerRunner(final Config config, final int portToBind) {
         handle = new PeerHandle(config, portToBind);
     }
 
     public ChannelFuture start() throws InterruptedException {
-        // Initialize web server on a different port (P2P port + 1000)
-        int webPort = handle.getPort() + 1000;
-        webServer = new WebServer(this, webPort);
-        webServer.start();
-        LOGGER.info("Web interface started on port {}", webPort);
-
         return handle.start();
     }
-
+    // Evaluar comandos y ejecuta la accion correspondiente
     public CommandResult handleCommand(final String command) {
         CommandResult result = CommandResult.CONTINUE;
         try {
@@ -47,9 +40,6 @@ public class PeerRunner {
                 handle.ping().whenComplete(new PingFutureListener());
             } else if (command.equals("leave")) {
                 handle.leave().whenComplete(new LeaveFutureListener());
-                if (webServer != null) {
-                    webServer.stop();
-                }
                 result = CommandResult.SHUT_DOWN;
             } else if (command.startsWith("connect ")) {
                 final String[] tokens = command.split(" ");
@@ -61,30 +51,20 @@ public class PeerRunner {
                 handle.disconnect(tokens[1]);
             } else if (command.equals("election")) {
                 handle.scheduleLeaderElection();
-            } else if (command.startsWith("sendfile ")) {
-                // Usar un parser más sofisticado para respetar las comillas
-                List<String> tokens = parseCommandWithQuotes(command);
-
-                if (tokens.size() != 3) {
-                    System.out.println("Invalid sendfile command. Format: sendfile peerName filePath");
-                    return INVALID_COMMAND;
-                }
-
-                final String targetPeer = tokens.get(1);
-                final String filePath = tokens.get(2);
-
-                final File file = new File(filePath);
-
-                if (!file.exists()) {
-                    System.out.println("Error: File not found: " + filePath);
-                    return INVALID_COMMAND;
-                }
-
-                System.out.println("Sending file: " + file.getAbsolutePath() + " to peer: " + targetPeer);
-                handle.sendFile(targetPeer, file).whenComplete(new SendFileFutureListener(targetPeer, file));
-            } else if (command.equals("files")) {
-                // List received files
-                // [código existente para listar archivos]
+            // nueva opcion
+            } else if (command.startsWith("sendmsg")) {
+                final String[] tokens = command.split(" ");
+                String nombre = tokens[1];
+                String content = String.join(" ", Arrays.copyOfRange(tokens, 2, tokens.length));
+                handle.sendmsg(nombre, content).whenComplete(new sendmsgFutureListener());
+            } else if (command.startsWith("send")) {
+                final String[] tokens = command.split(" ");
+                String nombre = tokens[1];
+                String file = tokens[2];
+                String content = String.join(" ", Arrays.copyOfRange(tokens, 3, tokens.length));
+                handle.sendfile(nombre, file, content).whenComplete(new sendmsgFutureListener());
+            } else if (command.equals("list")) {
+                handle.listFiles();
             } else {
                 result = INVALID_COMMAND;
             }
@@ -92,38 +72,8 @@ public class PeerRunner {
             LOGGER.error("Command failed: " + command, e);
             result = INVALID_COMMAND;
         }
+
         return result;
-    }
-
-    // Método auxiliar para analizar correctamente comandos con comillas
-    private List<String> parseCommandWithQuotes(String command) {
-        List<String> tokens = new ArrayList<>();
-        StringBuilder currentToken = new StringBuilder();
-        boolean inQuotes = false;
-
-        for (char c : command.toCharArray()) {
-            if (c == ' ' && !inQuotes) {
-                if (currentToken.length() > 0) {
-                    tokens.add(currentToken.toString());
-                    currentToken = new StringBuilder();
-                }
-            } else if (c == '"') {
-                inQuotes = !inQuotes;
-            } else {
-                currentToken.append(c);
-            }
-        }
-
-        // Añadir el último token si existe
-        if (currentToken.length() > 0) {
-            tokens.add(currentToken.toString());
-        }
-
-        return tokens;
-    }
-
-    public PeerHandle getHandle() {
-        return handle;
     }
 
     private static class PingFutureListener implements BiConsumer<Collection<String>, Throwable> {
@@ -133,7 +83,7 @@ public class PeerRunner {
             if (peerNames != null) {
                 LOGGER.info("PEERS: {}", peerNames);
             } else {
-                LOGGER.error("PING FAILED!", throwable);
+                LOGGER.error("PING FALLIDO!", throwable);
             }
         }
     }
@@ -143,9 +93,9 @@ public class PeerRunner {
         @Override
         public void accept(Void result, Throwable throwable) {
             if (throwable == null) {
-                LOGGER.info("LEFT THE CLUSTER AT {}", new Date());
+                LOGGER.info("ABANDONO DEL GRUPO A LAS {}", new Date());
             } else {
-                LOGGER.error("EXCEPTION OCCURRED DURING LEAVING THE CLUSTER!", throwable);
+                LOGGER.error("¡SE PRODUJO UNA EXCEPCION AL ABANDONAR EL GRUPO!", throwable);
             }
         }
     }
@@ -164,29 +114,23 @@ public class PeerRunner {
         @Override
         public void accept(Void aVoid, Throwable throwable) {
             if (throwable == null) {
-                LOGGER.info("Successfully connected to {}:{}", hostToConnect, portToConnect);
+                LOGGER.info("Conectado exitosamente a {}:{}", hostToConnect, portToConnect);
             } else {
-                LOGGER.error("Connection to " + hostToConnect + ":" + portToConnect + " failed!", throwable);
+                LOGGER.error("Conectado a " + hostToConnect + ":" + portToConnect + " fallo!", throwable);
             }
         }
     }
-
-    private static class SendFileFutureListener implements BiConsumer<Void, Throwable> {
-        private final String targetPeer;
-        private final File file;
-
-        public SendFileFutureListener(String targetPeer, File file) {
-            this.targetPeer = targetPeer;
-            this.file = file;
-        }
+    // nuevos metodos 
+    private static class sendmsgFutureListener implements BiConsumer<String, Throwable> {
 
         @Override
-        public void accept(Void aVoid, Throwable throwable) {
-            if (throwable == null) {
-                LOGGER.info("Successfully initiated file transfer of {} to {}", file.getName(), targetPeer);
+        public void accept(String peerNames, Throwable throwable) {
+            if (peerNames != null) {
+                LOGGER.info("Se mando correctamente a : {}", peerNames);
             } else {
-                LOGGER.error("Failed to send file " + file.getName() + " to " + targetPeer, throwable);
+                LOGGER.error("ENVIO DE MENSAJE FALLIDO!", throwable);
             }
         }
     }
+
 }

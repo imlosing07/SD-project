@@ -51,11 +51,11 @@ public class ConnectionService {
         final String peerName = connection.getPeerName();
         final Connection previousConnection = connections.put(peerName, connection);
 
-        LOGGER.info("Connection to " + peerName + " is added.");
+        LOGGER.info("Conexion a " + peerName + " se agrega.");
 
         if (previousConnection != null) {
             previousConnection.close();
-            LOGGER.warn("Already existing connection to " + peerName + " is closed.");
+            LOGGER.warn("Conexion ya existente a " + peerName + " esta cerrado.");
         }
     }
 
@@ -63,9 +63,9 @@ public class ConnectionService {
         final boolean removed = connections.remove(connection.getPeerName()) != null;
 
         if (removed) {
-            LOGGER.info(connection + " is removed from connections!");
+            LOGGER.info(connection + " se elimina de las conexiones!");
         } else {
-            LOGGER.warn("Connection to " + connection.getPeerName() + " is not removed since not found in connections!");
+            LOGGER.warn("Conexion a " + connection.getPeerName() + " no se elimina porque no se encuentra en las conexiones!");
         }
 
         return removed;
@@ -100,10 +100,10 @@ public class ConnectionService {
                 public void operationComplete(ChannelFuture future) throws Exception {
                     if (future.isSuccess()) {
                         futureToNotify.complete(null);
-                        LOGGER.info("Successfully connect to {}:{}", host, port);
+                        LOGGER.info("Conexion exitosamente a {}:{}", host, port);
                     } else {
                         futureToNotify.completeExceptionally(future.cause());
-                        LOGGER.error("Could not connect to " + host + ":" + port, future.cause());
+                        LOGGER.error("No se pudo conectar a " + host + ":" + port, future.cause());
                     }
                 }
             });

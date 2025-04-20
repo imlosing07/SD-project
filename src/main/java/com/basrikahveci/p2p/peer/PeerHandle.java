@@ -1,6 +1,5 @@
 package com.basrikahveci.p2p.peer;
 
-import com.basrikahveci.p2p.file.FileProtocol;
 import com.basrikahveci.p2p.peer.network.PeerChannelHandler;
 import com.basrikahveci.p2p.peer.network.PeerChannelInitializer;
 import com.basrikahveci.p2p.peer.service.ConnectionService;
@@ -20,10 +19,6 @@ import io.netty.handler.logging.LoggingHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.basrikahveci.p2p.file.FileTransferManager;
-
-import java.io.File;
-
 import java.util.Collection;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -31,9 +26,12 @@ import java.util.concurrent.TimeUnit;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
 
+import java.io.File;
+
 public class PeerHandle {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(PeerHandle.class);
+
 
     private final Config config;
 
@@ -53,20 +51,13 @@ public class PeerHandle {
 
     private Future timeoutPingsFuture;
 
-    private FileTransferManager fileTransferManager;
-
     public PeerHandle(Config config, int portToBind) {
         this.config = config;
         this.portToBind = portToBind;
         final ConnectionService connectionService = new ConnectionService(config, networkEventLoopGroup, peerEventLoopGroup, encoder);
         final LeadershipService leadershipService = new LeadershipService(connectionService, config, peerEventLoopGroup);
         final PingService pingService = new PingService(connectionService, leadershipService, config);
-
-        String uploadDir = "./uploads/" + config.getPeerName();
-        this.fileTransferManager = new FileTransferManager(this, uploadDir);
-
-        // Pasar el fileTransferManager al construir el Peer
-        this.peer = new Peer(config, connectionService, pingService, leadershipService, fileTransferManager);
+        this.peer = new Peer(config, connectionService, pingService, leadershipService);
     }
 
     public String getPeerName() {
@@ -77,14 +68,18 @@ public class PeerHandle {
         ChannelFuture closeFuture = null;
 
         final PeerChannelHandler peerChannelHandler = new PeerChannelHandler(config, peer);
-        final PeerChannelInitializer peerChannelInitializer = new PeerChannelInitializer(config, encoder, peerEventLoopGroup, peerChannelHandler);
+        final PeerChannelInitializer peerChannelInitializer = new PeerChannelInitializer(config, encoder,
+                peerEventLoopGroup, peerChannelHandler);
         final ServerBootstrap peerBootstrap = new ServerBootstrap();
-        peerBootstrap.group(acceptorEventLoopGroup, networkEventLoopGroup).channel(NioServerSocketChannel.class).option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000).option(ChannelOption.SO_KEEPALIVE, true).option(ChannelOption.SO_BACKLOG, 100).handler(new LoggingHandler(LogLevel.INFO)).childHandler(peerChannelInitializer);
+        peerBootstrap.group(acceptorEventLoopGroup, networkEventLoopGroup).channel(NioServerSocketChannel.class)
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000).option(ChannelOption.SO_KEEPALIVE, true)
+                .option(ChannelOption.SO_BACKLOG, 100).handler(new LoggingHandler(LogLevel.INFO))
+                .childHandler(peerChannelInitializer);
 
         final ChannelFuture bindFuture = peerBootstrap.bind(portToBind).sync();
 
         if (bindFuture.isSuccess()) {
-            LOGGER.info("{} Successfully bind to {}", config.getPeerName(), portToBind);
+            LOGGER.info("{} vinculado exitosamente a {}", config.getPeerName(), portToBind);
             final Channel serverChannel = bindFuture.channel();
 
             final SettableFuture<Void> setServerChannelFuture = SettableFuture.create();
@@ -100,7 +95,7 @@ public class PeerHandle {
             try {
                 setServerChannelFuture.get(10, TimeUnit.SECONDS);
             } catch (Exception e) {
-                LOGGER.error("Couldn't set bind channel to server " + config.getPeerName(), e);
+                LOGGER.error("No se pudo establecer el canal de enlace al servidor" + config.getPeerName(), e);
                 System.exit(-1);
             }
 
@@ -112,7 +107,7 @@ public class PeerHandle {
 
             closeFuture = serverChannel.closeFuture();
         } else {
-            LOGGER.error(config.getPeerName() + " could not bind to " + portToBind, bindFuture.cause());
+            LOGGER.error(config.getPeerName() + " no pudo unirse a " + portToBind, bindFuture.cause());
             System.exit(-1);
         }
 
@@ -137,125 +132,6 @@ public class PeerHandle {
         return future;
     }
 
-    public CompletableFuture<Void> sendFileMetadata(String targetPeer, String transferId, String fileName, String fullPath, long fileSize) {
-        CompletableFuture<Void> future = new CompletableFuture<>();
-        peerEventLoopGroup.execute(() -> {
-            try {
-                FileProtocol.FileMetadataMessage message = new FileProtocol.FileMetadataMessage(transferId, config.getPeerName(), fileName, fullPath, fileSize);
-
-                // Aquí necesitamos adaptar el mensaje para enviarlo con el sistema existente
-                // Esto requiere crear una clase adaptadora que implemente Message
-                sendFileMessage(targetPeer, message);
-
-                future.complete(null);
-            } catch (Exception e) {
-                LOGGER.error("Failed to send file metadata for " + fileName + " to " + targetPeer, e);
-                future.completeExceptionally(e);
-            }
-        });
-        return future;
-    }
-
-    public CompletableFuture<Void> sendFileChunk(String targetPeer, String transferId, byte[] data, long offset, int chunkNumber) {
-        CompletableFuture<Void> future = new CompletableFuture<>();
-        peerEventLoopGroup.execute(() -> {
-            try {
-                FileProtocol.FileChunkMessage message = new FileProtocol.FileChunkMessage(transferId, config.getPeerName(), data, offset, chunkNumber);
-
-                sendFileMessage(targetPeer, message);
-
-                future.complete(null);
-            } catch (Exception e) {
-                LOGGER.error("Failed to send file chunk at offset " + offset + " to " + targetPeer, e);
-                future.completeExceptionally(e);
-            }
-        });
-        return future;
-    }
-
-    public CompletableFuture<Void> sendTransferError(String targetPeer, String transferId, String errorMessage) {
-        CompletableFuture<Void> future = new CompletableFuture<>();
-        peerEventLoopGroup.execute(() -> {
-            try {
-                FileProtocol.TransferErrorMessage message = new FileProtocol.TransferErrorMessage(transferId, config.getPeerName(), errorMessage);
-
-                sendFileMessage(targetPeer, message);
-
-                future.complete(null);
-            } catch (Exception e) {
-                LOGGER.error("Failed to send transfer error notification to " + targetPeer, e);
-                future.completeExceptionally(e);
-            }
-        });
-        return future;
-    }
-
-    public CompletableFuture<Void> sendChunkAcknowledgment(String targetPeer, String transferId, int chunkNumber) {
-        CompletableFuture<Void> future = new CompletableFuture<>();
-        peerEventLoopGroup.execute(() -> {
-            try {
-                FileProtocol.ChunkAckMessage message = new FileProtocol.ChunkAckMessage(transferId, config.getPeerName(), chunkNumber);
-                sendFileMessage(targetPeer, message);
-
-                future.complete(null);
-            } catch (Exception e) {
-                LOGGER.error("Failed to send chunk acknowledgment for chunk " + chunkNumber + " to " + targetPeer, e);
-                future.completeExceptionally(e);
-            }
-        });
-        return future;
-    }
-
-    public CompletableFuture<Void> completeFileTransfer(String targetPeer, String transferId) {
-        CompletableFuture<Void> future = new CompletableFuture<>();
-        peerEventLoopGroup.execute(() -> {
-            try {
-                FileTransferManager.FileTransferInfo transferInfo = fileTransferManager.getOutgoingTransfer(transferId);
-                long totalBytes = transferInfo != null ? transferInfo.getFileSize() : 0;
-
-                FileProtocol.TransferCompleteMessage message = new FileProtocol.TransferCompleteMessage(transferId, config.getPeerName(), totalBytes);
-
-                sendFileMessage(targetPeer, message);
-
-                future.complete(null);
-            } catch (Exception e) {
-                LOGGER.error("Failed to complete file transfer " + transferId + " to " + targetPeer, e);
-                future.completeExceptionally(e);
-            }
-        });
-        return future;
-    }
-
-    public CompletableFuture<Void> cancelFileTransfer(String targetPeer, String transferId) {
-        CompletableFuture<Void> future = new CompletableFuture<>();
-        peerEventLoopGroup.execute(() -> {
-            try {
-                FileProtocol.TransferCancelMessage message = new FileProtocol.TransferCancelMessage(transferId, config.getPeerName(), "Transfer cancelled by sender");
-
-                sendFileMessage(targetPeer, message);
-
-                future.complete(null);
-            } catch (Exception e) {
-                LOGGER.error("Failed to cancel file transfer " + transferId + " to " + targetPeer, e);
-                future.completeExceptionally(e);
-            }
-        });
-        return future;
-    }
-
-    /**
-     * Método auxiliar para enviar mensajes de FileProtocol
-     */
-    private void sendFileMessage(String targetPeer, FileProtocol.FileMessage message) {
-        // Now the parameter type matches what peer.sendFileMessage expects
-        peer.sendFileMessage(targetPeer, message);
-    }
-
-    public CompletableFuture<Void> sendFile(final String targetPeer, final File file) {
-        return fileTransferManager.sendFile(targetPeer, file);
-    }
-
-
     public void scheduleLeaderElection() {
         peerEventLoopGroup.execute(peer::scheduleElection);
     }
@@ -271,8 +147,57 @@ public class PeerHandle {
     public void disconnect(final String peerName) {
         peerEventLoopGroup.execute(() -> peer.disconnect(peerName));
     }
-
-    public int getPort() {
-        return portToBind;
+    // nuevos metodos
+    public CompletableFuture<String> sendmsg(final String peerName, final String content) {
+        final CompletableFuture<String> future = new CompletableFuture<>();
+        peerEventLoopGroup.execute(() -> peer.sendmsg(peerName, content, future));
+        return future;
     }
+    public CompletableFuture<String> sendfile(final String peerName,final String file, final String content) {
+        final CompletableFuture<String> future = new CompletableFuture<>();
+        peerEventLoopGroup.execute(() -> peer.sendfile(peerName, file, content, future));
+        return future;
+    }
+
+    public void listFiles() {
+        String carpetaNombre = config.getPeerName();
+    
+        if (carpetaNombre == null || carpetaNombre.trim().isEmpty()) {
+            System.out.println("> Error: nombre de carpeta no válido.");
+            return;
+        }
+    
+        File carpeta = new File(carpetaNombre);
+    
+        if (!carpeta.exists()) {
+            boolean creada = carpeta.mkdirs();
+            if (!creada) {
+                System.out.println("> Error: no se pudo crear la carpeta.");
+                return;
+            }
+            System.out.println("> La carpeta fue creada pero esta vacia.");
+            return;
+        }
+    
+        File[] archivos = carpeta.listFiles();
+    
+        if (archivos == null) {
+            System.out.println("> Error: no se puede acceder a la carpeta o no es una carpeta valida.");
+            return;
+        }
+    
+        if (archivos.length == 0) {
+            System.out.println("> La carpeta esta vacia.");
+            return;
+        }
+    
+        for (File archivo : archivos) {
+            if (archivo.isFile()) {
+                System.out.println("> Archivo: " + archivo.getName());
+            } else if (archivo.isDirectory()) {
+                System.out.println("> Carpeta: " + archivo.getName());
+            }
+        }
+    }
+    
 }

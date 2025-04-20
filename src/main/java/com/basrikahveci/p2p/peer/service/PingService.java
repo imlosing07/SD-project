@@ -50,7 +50,7 @@ public class PingService {
                 if (!currentPings.containsKey(config.getPeerName())) {
                     discoveryPing();
                 } else {
-                    LOGGER.info("Periodic discovery ping skipped since there exists a ping already");
+                    LOGGER.info("Se omitio el ping de descubrimiento periodico porque ya existe un ping");
                 }
             } else {
                 keepAlive();
@@ -69,7 +69,7 @@ public class PingService {
         if (pingContext == null) {
             pingContext = discoveryPing();
         } else {
-            LOGGER.info("Attaching to the already existing ping context");
+            LOGGER.info("Adjuntar al contexto de ping ya existente");
         }
 
         if (future != null) {
@@ -90,14 +90,14 @@ public class PingService {
     public void handlePing(final InetSocketAddress bindAddress, final Connection connection, final Ping ping) {
         final String pingPeerName = ping.getPeerName();
         if (currentPings.containsKey(pingPeerName)) {
-            LOGGER.info("Skipping ping of {} since it is already handled.", pingPeerName);
+            LOGGER.info("Se omite el ping de {} porque ya esta manejado.", pingPeerName);
             return;
         }
 
         if (pingPeerName.equals(connection.getPeerName())) {
-            LOGGER.info("Handling {} of initiator {} with ttl={}", ping, pingPeerName, ping.getTtl());
+            LOGGER.info("Manejo  {} del iniciador {} con ttl={}", ping, pingPeerName, ping.getTtl());
         } else {
-            LOGGER.info("Handling {} of initiator {} and forwarder {} with ttl={} and hops={}", ping, pingPeerName,
+            LOGGER.info("Manejo  {} del iniciador {} y promotor {} con ttl={} y hops={}", ping, pingPeerName,
                     connection.getPeerName(), ping.getTtl(), ping.getHops());
         }
 
@@ -112,7 +112,7 @@ public class PingService {
         if (next != null) {
             for (Connection neighbour : connectionService.getConnections()) {
                 if (!neighbour.equals(connection) && !neighbour.getPeerName().equals(ping.getPeerName())) {
-                    LOGGER.info("Forwarding {} to {} for initiator {}", next, neighbour.getPeerName(),
+                    LOGGER.info("Reenviando {} a {} para el iniciador {}", next, neighbour.getPeerName(),
                             ping.getPeerName());
                     neighbour.send(next);
                 }
@@ -131,7 +131,7 @@ public class PingService {
                 final Ping next = pingContext.getPing().next();
                 if (next != null) {
                     connection.send(next);
-                    LOGGER.info("{} sent to new connection {}", next, connection.getPeerName());
+                    LOGGER.info("{} enviado a nueva conexion {}", next, connection.getPeerName());
                 }
             }
         }
@@ -144,13 +144,13 @@ public class PingService {
      */
     public void handlePong(final Pong pong) {
         if (pong.getPeerName().equals(config.getPeerName())) {
-            LOGGER.warn("Received {} from itself", pong);
+            LOGGER.warn("Recibio {} de si mismo", pong);
             return;
         }
         final String pingPeerName = pong.getPingPeerName();
         final PingContext pingContext = currentPings.get(pingPeerName);
         if (pingContext == null) {
-            LOGGER.warn("No ping context is found for {} from {} for initiator {}", pong, pong.getPeerName(),
+            LOGGER.warn("No se encuentra ningun contexto de ping para {} desde {} para el iniciador {}", pong, pong.getPeerName(),
                     pingPeerName);
             return;
         }
@@ -177,11 +177,11 @@ public class PingService {
             if (pingContext.removePong(disconnectedPeerName)) {
                 final Connection pingOwnerConnection = pingContext.getConnection();
                 if (pingOwnerConnection != null) {
-                    LOGGER.info("Removed pong of {} in ping of {}. Forwarding {} to {}", disconnectedPeerName, pingPeerName,
+                    LOGGER.info("Se elimino el pong de {} en el ping de {}. Se reenvia {} a {}.", disconnectedPeerName, pingPeerName,
                             cancelPongs, pingOwnerConnection.getPeerName());
                     pingOwnerConnection.send(cancelPongs);
                 } else {
-                    LOGGER.info("Removed pong of {} in ping of {}", disconnectedPeerName, pingPeerName);
+                    LOGGER.info("Se elimino el pong de {} en el ping de {}", disconnectedPeerName, pingPeerName);
                 }
             }
 
@@ -194,13 +194,13 @@ public class PingService {
                 if (pong.getSenderPeerName().equals(disconnectedPeerName)) {
                     pingContext.removePong(pong.getPeerName());
                     rePing = true;
-                    LOGGER.info("Removed Pong of {} in ping of {} since it was sent by {}", pong.getPeerName(), pingPeerName,
+                    LOGGER.info("Se elimino Pong de {} en ping de {} ya que fue enviado por {}", pong.getPeerName(), pingPeerName,
                             disconnectedPeerName);
                     final Connection connection = pingContext.getConnection();
                     if (connection != null) {
                         final CancelPongs msg = new CancelPongs(pong.getPeerName());
                         connection.send(msg);
-                        LOGGER.info("Forwarded {} to {} for ping of {}", msg, connection.getPeerName(), pingPeerName);
+                        LOGGER.info("Reenviado {} a {} para ping de {}", msg, connection.getPeerName(), pingPeerName);
                     }
                 }
             }
@@ -208,12 +208,12 @@ public class PingService {
             if (rePing) {
                 final Ping next = pingContext.getPing().next();
                 if (next != null) {
-                    LOGGER.info("Will re-send {}", next);
+                    LOGGER.info("Se reenviara {}", next);
                     for (Connection connection : connectionService.getConnections()) {
                         if (!(connection.getPeerName().equals(pingPeerName) || connection.getPeerName()
                                 .equals(disconnectedPeerName) || !connection.equals(pingContext.getConnection()))) {
                             connection.send(next);
-                            LOGGER.info("{} re-sent to {} because {} left", next, connection.getPeerName(), disconnectedPeerName);
+                            LOGGER.info("{} reenviado a {} porque {} se fue", next, connection.getPeerName(), disconnectedPeerName);
                         }
                     }
                 }
@@ -243,7 +243,7 @@ public class PingService {
             }
 
             if (shouldRemove) {
-                LOGGER.info("Removing ping of {} since it is disconnected", pingPeerName);
+                LOGGER.info("Eliminando el ping de {} ya que esta desconectado", pingPeerName);
 
                 pingIt.remove();
                 final CancelPings cancelPings = new CancelPings(disconnectedPeerName);
@@ -251,9 +251,9 @@ public class PingService {
                     final Connection c = connectionService.getConnection(pong.getPeerName());
                     if (c != null) {
                         c.send(cancelPings);
-                        LOGGER.info("{} sent to {}", cancelPings, pong.getPeerName());
+                        LOGGER.info("{} enviado a {} ", cancelPings, pong.getPeerName());
                     } else {
-                        LOGGER.warn("{} not sent to {} since there is no connection", cancelPings, pong.getPeerName());
+                        LOGGER.warn("{} no enviado a {} ya que no hay conexion", cancelPings, pong.getPeerName());
                     }
                 }
             }
@@ -266,7 +266,7 @@ public class PingService {
     public void cancelOwnPing() {
         final PingContext pingContext = currentPings.get(config.getPeerName());
         if (pingContext != null) {
-            LOGGER.info("Cancelling own ping");
+            LOGGER.info("Cancelar ping propio");
             for (CompletableFuture<Collection<String>> future : pingContext.getFutures()) {
                 future.cancel(true);
             }
@@ -299,13 +299,13 @@ public class PingService {
                         peers.add(pong.getPeerName());
                     }
                     peers.add(config.getPeerName());
-                    LOGGER.info("Ping for {} has timed out. Notifying futures with # peers: {}", pingContext.getPeerName(),
+                    LOGGER.info("El ping para {} ha expirado. Notificando futuros con # peers: {}", pingContext.getPeerName(),
                             peers.size());
                     for (CompletableFuture<Collection<String>> future : pingContext.getFutures()) {
                         future.complete(peers);
                     }
                 } else {
-                    LOGGER.info("Ping for {} has timed out.", pingContext.getPeerName());
+                    LOGGER.info("Se ha expirado el tiempo de ping para {}.", pingContext.getPeerName());
                 }
             }
         }
@@ -316,7 +316,7 @@ public class PingService {
     private PingContext discoveryPing() {
         final int ttl = config.getPingTTL();
 
-        LOGGER.info("Doing a full ping with ttl={}", ttl);
+        LOGGER.info("Haciendo un ping completo con ttl={}", ttl);
 
         final Ping ping = new Ping(config.getPeerName(), ttl, 0, config.getPingTimeoutMillis());
         ping.setPingStartTimestamp(System.currentTimeMillis());
@@ -335,12 +335,14 @@ public class PingService {
     }
 
     private void keepAlive() {
-        LOGGER.debug("Doing a keep-alive ping");
+        LOGGER.debug("Haciendo un ping de mantener vivo");
 
         final KeepAlive keepAlive = new KeepAlive();
         for (Connection connection : connectionService.getConnections()) {
             connection.send(keepAlive);
         }
     }
+
+
 
 }

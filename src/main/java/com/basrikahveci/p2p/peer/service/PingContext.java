@@ -51,25 +51,25 @@ public class PingContext {
     public boolean handlePong(final String thisServerName, final Pong pong) {
         final String pongServerName = pong.getPeerName();
         if (pongs.containsKey(pongServerName)) {
-            LOGGER.debug("{} from {} is already handled for {}", pong, pongServerName, ping.getPeerName());
+            LOGGER.debug("{} de {} ya esta manejado para {}", pong, pongServerName, ping.getPeerName());
             return false;
         }
 
         pongs.put(pongServerName, pong);
 
-        LOGGER.debug("Handling {} from {} for {}. Pong #: {}", pong, pongServerName, ping.getPeerName(), pongs.size());
+        LOGGER.debug("Manejo de {} desde {} para {}. Pong #: {}", pong, pongServerName, ping.getPeerName(), pongs.size());
 
         if (!thisServerName.equals(ping.getPeerName())) {
             if (connection != null) {
                 final Pong next = pong.next(thisServerName);
                 if (next != null) {
-                    LOGGER.debug("Forwarding {} to {} for initiator {}", pong, connection.getPeerName(), ping.getPeerName());
+                    LOGGER.debug("Reenviando {} a {} para el iniciador {}", pong, connection.getPeerName(), ping.getPeerName());
                     connection.send(next);
                 } else {
-                    LOGGER.error("Invalid {} received from {} for {}", pong, pongServerName, ping.getPeerName());
+                    LOGGER.error("Se recibieron {} no validos de {} para {}", pong, pongServerName, ping.getPeerName());
                 }
             } else {
-                LOGGER.error("No connection is found in ping context for {} from {} for {}", pong, pongServerName,
+                LOGGER.error("No se encuentra conexion en el contexto de ping para {} desde {} para {}", pong, pongServerName,
                         ping.getPeerName());
             }
         }

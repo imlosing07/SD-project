@@ -1,3 +1,12 @@
+/* 
+ * Propiedad de sistemas 
+ * DpeerName --> nombre del peer
+ * Parametros
+ * -n --> nombre del peer
+ * -b --> puerto a escuchar
+ * -c --> configuracion opcional
+ */
+
 package com.basrikahveci.p2p;
 
 import com.basrikahveci.p2p.peer.Config;
@@ -25,8 +34,6 @@ public class Main {
     private static final String BIND_PORT_PARAMETER = "b";
 
     private static final String CONFIG_FILE_PARAMETER = "c";
-
-    private static final String UPLOAD_DIR_PARAMETER = "u";
 
     private static final String HELP_PARAMETER = "help";
 
@@ -107,103 +114,84 @@ public class Main {
         public abstract void setIntValue(final int val, final Config config);
 
     }
-
+    // Metodo principal 
     public static void main(String[] args) throws IOException, InterruptedException {
+        // Evaluar si el nombre del peer es nulo
         if (System.getProperty(PEER_NAME_SYSTEM_PROPERTY) == null) {
-            LOGGER.error("System property peerName should be provided!");
+            LOGGER.error("Se debe proporcionar la propiedad Dpeername!");
             System.exit(-1);
         }
 
-        final OptionSet options = parseArguments(args);
-        final PeerRunner peerRunner = createPeerRunner(options);
-        peerRunner.start();
-
-        // Print web interface URL
-        int webPort = peerRunner.getHandle().getPort() + 1000;
-        System.out.println("\n====================================================");
-        System.out.println("Web interface available at: http://localhost:" + webPort);
-        System.out.println("====================================================\n");
-
-        System.out.println("Enter commands:");
-        printHelp("");
+        final OptionSet options = parseArguments(args); //procesar los argumentos
+        final PeerRunner peerRunner = createPeerRunner(options); // crear el peer
+        peerRunner.start(); //iniciar el peer
 
         String line;
         final BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, Charsets.UTF_8));
         while ((line = reader.readLine()) != null) {
-            // Pasar directamente la línea al manejador de comandos
-            final PeerRunner.CommandResult result = peerRunner.handleCommand(line);
-
+            final PeerRunner.CommandResult result = peerRunner.handleCommand(line); //manejar el comando
             if (result == PeerRunner.CommandResult.SHUT_DOWN) {
                 break;
             } else if (result == PeerRunner.CommandResult.INVALID_COMMAND && line.length() > 0) {
                 printHelp(line);
             }
         }
+        System.exit(0);
     }
 
     private static PeerRunner createPeerRunner(final OptionSet options) throws IOException, InterruptedException {
         final String peerName = (String) options.valueOf(PEER_NAME_PARAMETER);
         final int portToBind = (int) options.valueOf(BIND_PORT_PARAMETER);
-
+        // Configuracion incial
         final Config config = new Config();
+        // Configuracion por usuario
         config.setPeerName(peerName);
-        populateConfig(options, config);
-
-        // Set upload directory if provided
-        if (options.has(UPLOAD_DIR_PARAMETER)) {
-            String uploadDir = (String) options.valueOf(UPLOAD_DIR_PARAMETER);
-            System.setProperty("uploadDir", uploadDir);
-        } else {
-            // Use default upload directory
-            String defaultUploadDir = "./uploads/" + peerName;
-            File dir = new File(defaultUploadDir);
-            if (!dir.exists()) {
-                dir.mkdirs();
-            }
-            System.setProperty("uploadDir", defaultUploadDir);
-        }
+        populateConfig(options, config); //configurar segun el archivo
 
         return new PeerRunner(config, portToBind);
     }
-
+    // parsear la opciones
     private static OptionSet parseArguments(final String[] args) throws IOException {
         final OptionParser optionParser = new OptionParser();
+        // tipo que acepta el parser
         optionParser.accepts(PEER_NAME_PARAMETER).withRequiredArg().ofType(String.class).describedAs("peer name");
         optionParser.accepts(BIND_PORT_PARAMETER).withRequiredArg().ofType(Integer.class).describedAs("port to bind");
         optionParser.accepts(CONFIG_FILE_PARAMETER).withOptionalArg().ofType(File.class).describedAs("config properties file");
-        optionParser.accepts(UPLOAD_DIR_PARAMETER).withOptionalArg().ofType(String.class).describedAs("upload directory for received files");
         optionParser.accepts(HELP_PARAMETER).forHelp();
 
         final OptionSet options = optionParser.parse(args);
+        // mostrar ayuda
         if (options.has(HELP_PARAMETER)) {
             optionParser.printHelpOn(System.out);
         }
-
+        // si falta nombre o puerto mostrar ayuda y cerrar
         if (!options.has(PEER_NAME_PARAMETER) || !options.has(BIND_PORT_PARAMETER)) {
             if (!options.has(HELP_PARAMETER)) {
                 optionParser.printHelpOn(System.out);
             }
-            LOGGER.error("Missing arguments!!");
+            LOGGER.error("Faltan Argumentos!!");
             System.exit(-1);
         }
 
         return options;
     }
-
+    // Terminar la configuracion 
     private static void populateConfig(final OptionSet options, final Config config) throws IOException {
         if (options.has(CONFIG_FILE_PARAMETER)) {
             final File file = (File) options.valueOf(CONFIG_FILE_PARAMETER);
-            loadConfig(config, file);
+            loadConfig(config, file); //cargar configuracion opcional
         }
 
-        LOGGER.info("Using configuration: {}", config);
+        LOGGER.info("Config: {}", config);
     }
 
     private static void loadConfig(final Config config, final File file) throws IOException {
         final Properties properties = new Properties();
+        // Abrir el archivo de propiedades
         final FileInputStream fileInputStream = new FileInputStream(file);
         properties.load(fileInputStream);
         fileInputStream.close();
+        // Iterar sobre las propiedades y asignar los valores a la configuracion
         for (String propertyName : properties.stringPropertyNames()) {
             final ConfigProperty configProperty = ConfigProperty.byPropertyName(propertyName);
             final int val = Integer.parseInt(properties.getProperty(propertyName));
@@ -212,19 +200,30 @@ public class Main {
     }
 
     private static void printHelp(final String line) {
-        if (!"help".equalsIgnoreCase(line.trim()) && !line.isEmpty()) {
-            System.out.println("Invalid input command:  " + line);
+        if (!"help".equalsIgnoreCase(line.trim())) {
+            System.out.println("Comando no valido:  " + line);
         }
 
-        System.out.println("############################################## COMMANDS ###############################################");
-        System.out.println("# 1) ping                >>> Lists peers in the network                                               #");
-        System.out.println("# 2) leave               >>> Leaves the network                                                       #");
-        System.out.println("# 3) connect host port   >>> Connects to the peer specified by host:port pair                         #");
-        System.out.println("# 4) disconnect peerName >>> Disconnects from the peer specified with peerName                        #");
-        System.out.println("# 5) election            >>> Starts a new leader election                                             #");
-        System.out.println("# 6) sendfile peer path  >>> Sends a file to the specified peer                                       #");
-        System.out.println("# 7) files               >>> Lists all received files                                                 #");
-        System.out.println("#######################################################################################################");
-        System.out.println("NOTE: A web interface is also available at http://localhost:[P2P_PORT+1000]");
+        System.out.println(
+                "############################################## COMANDOS ###############################################");
+        System.out.println(
+                "# 1) ping                   >>> Enumera peers en la red                                               #");
+        System.out.println(
+                "# 2) leave                  >>> Salirse de la red                                                     #");
+        System.out.println(
+                "# 3) connect host port      >>> Se conecta a un peer a un host y puerto especificado                  #");
+        System.out.println(
+                "# 4) disconnect peerName    >>> Se desconecta del peer especificado con peerName                      #");
+        System.out.println(
+                "# 5) election               >>> Comienza una nueva eleccion de lider                                  #");
+        System.out.println(
+                "# 6) sendmsg peerName msg   >>> Mandar un mensaje a un peer especifico                                #");
+        System.out.println(
+                "# 7) send peerName file msg >>> Mandar un archivo y un mensaje opcional                               #");
+        System.out.println(
+                "# 8) list                   >>> Listar archivos del peer                                              #");
+        System.out.println(
+                "#######################################################################################################");
     }
+
 }

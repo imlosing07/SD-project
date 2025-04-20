@@ -57,19 +57,19 @@ public class LeadershipService {
         final String connectionPeerName = connection.getPeerName();
         if (this.leaderName != null) {
             if (this.leaderName.equals(leaderName)) {
-                LOGGER.warn("Ignoring new leader {} from {} since it is already known leader.", leaderName, connectionPeerName);
+                LOGGER.warn("Ignorando el nuevo lider {} de {} ya que es un lider conocido.", leaderName, connectionPeerName);
                 return;
             }
             final boolean isNewLeaderStronger = !isThisPeerStrongerThan(leaderName);
-            LOGGER.warn("A new leader {} from {} is received while there is already a leader {}. Is new leader stronger? {}",
+            LOGGER.warn("Se recibe un nuevo lider {} de {} mientras ya hay un lider {}. ¿Es el nuevo lider mas fuerte? {}",
                     leaderName, connectionPeerName, this.leaderName, isNewLeaderStronger);
         }
 
         this.leaderName = leaderName;
-        LOGGER.info("Leader from {} is set to {}.", connectionPeerName, leaderName);
+        LOGGER.info("El lider de {} se establece en {}.", connectionPeerName, leaderName);
 
         if (isThisPeerStrongerThan(leaderName)) {
-            LOGGER.info("Starting a new election since the announced leader {} is weaker.", leaderName);
+            LOGGER.info("Comenzando una nueva eleccion ya que el lider anunciado {} es mas debil.", leaderName);
             startElection();
         }
     }
@@ -84,15 +84,15 @@ public class LeadershipService {
         final String connectionPeerName = connection.getPeerName();
 
         if (leaderName != null) {
-            LOGGER.warn("Election received from {} while there is already a leader {}. Starting new election. ",
+            LOGGER.warn("Se recibio una eleccion de {} mientras ya hay un lider {}. Comienza una nueva eleccion.",
                     connectionPeerName, leaderName);
         } else {
-            LOGGER.info("Election msg of {} is received.", connectionPeerName);
+            LOGGER.info("Se recibio el mensaje de eleccion de {}.", connectionPeerName);
         }
 
         if (isThisPeerStrongerThan(connectionPeerName)) {
             connection.send(new Rejection());
-            LOGGER.info("Rejecting election of {} since it is weaker.", connectionPeerName);
+            LOGGER.info("Rechazando la eleccion de {} por ser mas debil.", connectionPeerName);
             scheduleElection();
         }
     }
@@ -107,21 +107,21 @@ public class LeadershipService {
         final String connectionPeerName = connection.getPeerName();
         if (isElectionPresent) {
             if (isThisPeerStrongerThan(connectionPeerName)) {
-                LOGGER.warn("Rejection of {} is ignored since it is weaker.", connectionPeerName);
+                LOGGER.warn("El rechazo de {} se ignora porque es mas debil.", connectionPeerName);
             } else {
-                LOGGER.info("{} rejected. Scheduling election timeout.", connectionPeerName);
+                LOGGER.info("{} rechazado. Se agoto el tiempo de espera para la programacion de elecciones.", connectionPeerName);
                 if (electionTimeoutFuture != null) {
                     electionTimeoutFuture.cancel(false);
                     electionTimeoutFuture = null;
                 } else {
-                    LOGGER.warn("Election timeout do not exist!");
+                    LOGGER.warn("¡El tiempo limite para las elecciones no existe!");
                 }
 
                 scheduleElectionTimeout(config.getLeaderRejectionTimeoutSeconds());
                 isElectionPresent = false;
             }
         } else {
-            LOGGER.debug("Rejection of {} is ignored since there is no election", connectionPeerName);
+            LOGGER.debug("El rechazo de {} se ignora ya que no hay eleccion", connectionPeerName);
         }
     }
 
@@ -148,7 +148,7 @@ public class LeadershipService {
 
     private void startElection() {
         if (isElectionPresent) {
-            LOGGER.warn("An ongoing election already exists!");
+            LOGGER.warn("Ya existe una eleccion en curso!");
             return;
         }
 
@@ -161,7 +161,7 @@ public class LeadershipService {
             }
         }
 
-        LOGGER.info("Started an election!");
+        LOGGER.info("Comenzo una eleccion!");
         scheduleElectionTimeout(config.getLeaderElectionTimeoutSeconds());
     }
 
@@ -172,20 +172,20 @@ public class LeadershipService {
     private void handleElectionTimeout() {
         electionTimeoutFuture = null;
         if (isElectionPresent) {
-            LOGGER.info("Election timed out without getting any rejections. Announcing itself as leader.");
+            LOGGER.info("Las elecciones se agotaron sin recibir ningun rechazo. Se anuncia como lider.");
             setThisPeerLeader();
             isElectionPresent = false;
         } else if (leaderName == null) {
-            LOGGER.info("Election rejected but there is no leader yet. Starting a new election.");
+            LOGGER.info("Elecciones rechazadas, pero aun no hay lider. Comienzan nuevas elecciones.");
             scheduleElection();
         } else {
-            LOGGER.debug("Election timeout and current leader is already set to {}", leaderName);
+            LOGGER.debug("Se agoto el tiempo de eleccion y el lider actual ya esta establecido en {}", leaderName);
         }
     }
 
     private void setThisPeerLeader() {
         this.leaderName = config.getPeerName();
-        LOGGER.info("Announcing itself as leader!");
+        LOGGER.info("Anunciando a si mismo como lider!");
         final AnnounceLeader announceLeader = new AnnounceLeader(config.getPeerName());
         for (Connection connection : connectionService.getConnections()) {
             connection.send(announceLeader);

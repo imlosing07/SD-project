@@ -1,9 +1,7 @@
 package com.basrikahveci.p2p.peer.network;
 
-import com.basrikahveci.p2p.file.FileProtocol;
 import com.basrikahveci.p2p.peer.Config;
 import com.basrikahveci.p2p.peer.Peer;
-import com.basrikahveci.p2p.peer.network.message.FileTransferMessage;
 import com.basrikahveci.p2p.peer.network.message.Handshake;
 import com.basrikahveci.p2p.peer.network.message.Message;
 import io.netty.channel.ChannelHandler.Sharable;
@@ -39,7 +37,7 @@ public class PeerChannelHandler extends SimpleChannelInboundHandler<Message> {
 
     @Override
     public void channelActive(final ChannelHandlerContext ctx) throws Exception {
-        LOGGER.debug("Channel active {}", ctx.channel().remoteAddress());
+        LOGGER.debug("Canal activo {}", ctx.channel().remoteAddress());
         final Connection connection = new Connection(ctx);
         getSessionAttribute(ctx).set(connection);
         ctx.writeAndFlush(new Handshake(config.getPeerName(), peer.getLeaderName()));
@@ -47,9 +45,16 @@ public class PeerChannelHandler extends SimpleChannelInboundHandler<Message> {
 
     @Override
     public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
-        LOGGER.debug("Channel inactive {}", ctx.channel().remoteAddress());
+        LOGGER.debug("Canal inactivo {}", ctx.channel().remoteAddress());
         final Connection connection = getSessionAttribute(ctx).get();
         peer.handleConnectionClosed(connection);
+    }
+
+    @Override
+    public void channelRead0(final ChannelHandlerContext ctx, final Message message) throws Exception {
+        LOGGER.debug("Mensaje {} recibido de {}", message.getClass(), ctx.channel().remoteAddress());
+        final Connection connection = getSessionAttribute(ctx).get();
+        message.handle(peer, connection);
     }
 
     @Override
@@ -59,7 +64,7 @@ public class PeerChannelHandler extends SimpleChannelInboundHandler<Message> {
 
     @Override
     public void exceptionCaught(final ChannelHandlerContext ctx, final Throwable cause) {
-        LOGGER.error("Channel failure " + ctx.channel().remoteAddress(), cause);
+        LOGGER.error("Fallo del canal " + ctx.channel().remoteAddress(), cause);
         ctx.close();
         peer.handleConnectionClosed(getSessionAttribute(ctx).get());
     }
@@ -69,16 +74,10 @@ public class PeerChannelHandler extends SimpleChannelInboundHandler<Message> {
         if (evt instanceof IdleStateEvent) {
             final IdleStateEvent idleStateEvent = (IdleStateEvent) evt;
             if (idleStateEvent.state() == IdleState.READER_IDLE) {
-                LOGGER.warn("Channel idle {}", ctx.channel().remoteAddress());
+                LOGGER.warn("Canal inactivo {}", ctx.channel().remoteAddress());
                 ctx.close();
             }
         }
     }
 
-    @Override
-    protected void channelRead0(ChannelHandlerContext ctx, Message msg) throws Exception {
-        LOGGER.debug("Message {} received from {}", msg.getClass(), ctx.channel().remoteAddress());
-        final Connection connection = getSessionAttribute(ctx).get();
-        msg.handle(peer, connection);
-    }
 }

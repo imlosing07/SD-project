@@ -29,8 +29,7 @@ public class Handshake implements Message {
             connection.setPeerName(this.peerName);
             peer.handleConnectionOpened(connection, leaderName);
         } else if (!peerName.equals(this.peerName)) {
-            LOGGER.warn(
-                    "Mismatching peer name received from connection! Existing: " + this.peerName + " Received: " + this.peerName);
+            LOGGER.warn("¡Nombre de peer no coincidente recibido de la conexion! Existente: " + this.peerName + " Recibido: " + peerName); 
         }
     }
 

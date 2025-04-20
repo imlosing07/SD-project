@@ -37,7 +37,7 @@ public class Connection {
         if (this.peerName == null) {
             this.peerName = peerName;
         } else {
-            LOGGER.warn("peer name {} set again for connection {}", peerName, this);
+            LOGGER.warn("Nombre de peer {} establecido nuevamente para la conexion {}", peerName, this);
         }
     }
 
@@ -45,12 +45,12 @@ public class Connection {
         if (ctx != null) {
             ctx.writeAndFlush(msg);
         } else {
-            LOGGER.error("Can not send message " + msg.getClass() + " to " + toString());
+            LOGGER.error("No se puede enviar mensaje " + msg.getClass() + " a " + toString());
         }
     }
 
     public void close() {
-        LOGGER.debug("Closing session of {}", toString());
+        LOGGER.debug("Sesion de clausura de {}", toString());
         if (ctx != null) {
             ctx.close();
             ctx = null;

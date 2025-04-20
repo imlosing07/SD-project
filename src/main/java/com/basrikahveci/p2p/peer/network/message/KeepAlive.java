@@ -16,7 +16,7 @@ public class KeepAlive implements Message {
 
     @Override
     public void handle(Peer peer, Connection connection) {
-        LOGGER.debug("Keep alive ping received from {}", connection);
+        LOGGER.debug("Mantener vivo el ping recibido de {}", connection);
     }
 
 }
