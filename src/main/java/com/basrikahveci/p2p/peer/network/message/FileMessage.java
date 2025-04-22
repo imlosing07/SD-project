@@ -46,15 +46,20 @@ public class FileMessage extends TextMessage {
     
         return newFileName;
     }
-    
+
     public void saveFile(String directory) {
-        // Crear directorio si no existe
+        // Create directory if it doesn't exist
         File dir = new File(directory);
         if (!dir.exists()) {
             dir.mkdirs();
         }
-        String uniqueFileName = getUniqueFileName(directory, fileName);
+
+        // Extract just the filename part if it's an absolute path
+        String fileNameOnly = new File(fileName).getName();
+
+        String uniqueFileName = getUniqueFileName(directory, fileNameOnly);
         File file = Paths.get(directory, uniqueFileName).toFile();
+
         try (FileOutputStream fos = new FileOutputStream(file)) {
             fos.write(fileContent);
             fos.flush();
@@ -62,7 +67,6 @@ public class FileMessage extends TextMessage {
         } catch (IOException e) {
             System.err.println("> Error al guardar el archivo: " + e.getMessage());
         }
-
     }
 
     public FileMessage(String content, String nombre, String fileName) {

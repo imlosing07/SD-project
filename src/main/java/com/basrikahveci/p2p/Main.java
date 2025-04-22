@@ -219,7 +219,7 @@ public class Main {
         System.out.println(
                 "# 6) sendmsg peerName msg   >>> Mandar un mensaje a un peer especifico                                #");
         System.out.println(
-                "# 7) send peerName file msg >>> Mandar un archivo y un mensaje opcional                               #");
+                "# 7) send <peerName> <path> msg >>> Mandar un archivo por su ruta                              #");
         System.out.println(
                 "# 8) list                   >>> Listar archivos del peer                                              #");
         System.out.println(
